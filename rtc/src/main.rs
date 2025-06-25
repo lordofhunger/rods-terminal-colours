@@ -7,6 +7,7 @@ use std::{
     path::PathBuf,
 };
 use dirs;
+use rand::seq::SliceRandom;
 
 const COLOUR_KEYS: [&str; 19] = [
     "foreground", "background", "cursor",
@@ -20,20 +21,28 @@ const COLOUR_KEYS: [&str; 19] = [
     author = "Rod",
     version,
     about = "Rod's Terminal Colours for Kitty",
-    long_about = "Rod's Terminal Colours (rtc) is a CLI tool to manage different colour functionalities for the Kitty terminal emulator. It allows you to generate random colour schemes, create backups of your current colour configuration, and load previously saved backups. Colours are applied to ~/.config/kitty/kitty.conf or ~/.kitty.kitty.conf.",
+    long_about = "Rod's Terminal Colours (rtc) is a CLI tool to manage different colour functionalities. It allows you to generate random colour schemes, create backups of your current one, load previously saved ones, print current colours, and shuffle existing colours. Colours are applied to ~/.config/kitty/kitty.kitty.conf or ~/.kitty.kitty.conf.",
 )]
 struct Args {
     /// Generate and apply a random Kitty colour scheme
-    #[arg(short = 'r', long = "random", conflicts_with_all = &["backup", "load"])]
-    random_colours: bool,
+    #[arg(short = 'r', long = "random", conflicts_with_all = &["backup", "load", "colours", "shuffle"])]
+    random_colors: bool,
 
     /// Create a backup of your current Kitty colour configuration (only the 19 prominent colours)
-    #[arg(short = 'b', long = "backup", conflicts_with_all = &["random_colours", "load"])]
+    #[arg(short = 'b', long = "backup", conflicts_with_all = &["random_colors", "load", "colours", "shuffle"])]
     backup: bool,
 
     /// Load a saved Kitty colour configuration backup
-    #[arg(short = 'l', long = "load", conflicts_with_all = &["random_colours", "backup"])]
+    #[arg(short = 'l', long = "load", conflicts_with_all = &["random_colors", "backup", "colours", "shuffle"])]
     load: bool,
+
+    /// Print the currently applied 19 prominent colours from Kitty's config
+    #[arg(short = 'c', long = "colours", conflicts_with_all = &["random_colors", "backup", "load", "shuffle"])]
+    colours: bool,
+
+    /// Shuffle the currently applied 19 prominent colours in Kitty's config
+    #[arg(short = 's', long = "shuffle", conflicts_with_all = &["random_colors", "backup", "load", "colours"])]
+    shuffle: bool,
 
     /// Specify a name for the backup or load operation (e.g., 'my_theme').
     /// If not provided, a default backup/load will be used.
@@ -90,7 +99,7 @@ fn get_colours_backup_path(backup_name: &Option<String>) -> Result<PathBuf, io::
 fn extract_current_colours(config_file_path: &PathBuf) -> Result<HashMap<String, String>, io::Error> {
     let original_content = fs::read_to_string(config_file_path)
         .map_err(|e| io::Error::new(e.kind(), format!("Failed to read kitty.conf for colour extraction: {}", e)))?;
-    let mut current_colours = HashMap::new();
+    let mut current_colours: HashMap<String, String> = HashMap::new();
 
     for line in original_content.lines() {
         let trimmed_line = line.trim();
@@ -129,12 +138,17 @@ fn update_kitty_config_with_colours(config_file_path: &PathBuf, colours_to_apply
     for line in original_content.lines() {
         let mut line_modified = false;
         for &key in COLOUR_KEYS.iter() {
-            if line.trim_start().starts_with(key) && line.contains('#') {
-                if let Some(hash_pos) = line.find('#') {
-                    let prefix = &line[0..hash_pos];
-                    new_content_lines.push(format!("{} #{}\n", prefix.trim_end(), colours_to_apply[key]));
-                    line_modified = true;
-                    break;
+            let trimmed_line_start = line.trim_start();
+            if trimmed_line_start.starts_with(key) {
+                let remaining_after_key = &trimmed_line_start[key.len()..];
+                if let Some(hash_pos_in_remaining) = remaining_after_key.find('#') {
+                    let chars_between = &remaining_after_key[..hash_pos_in_remaining];
+                    if chars_between.trim().is_empty() {
+                        let prefix = &line[..line.len() - remaining_after_key.len()];
+                        new_content_lines.push(format!("{} #{}\n", prefix.trim_end(), colours_to_apply[key]));
+                        line_modified = true;
+                        break;
+                    }
                 }
             }
         }
@@ -221,6 +235,50 @@ fn apply_random_colours_to_kitty(config_file_path: &PathBuf) -> Result<(), io::E
     Ok(())
 }
 
+fn print_current_colours_to_terminal(config_file_path: &PathBuf) -> Result<(), io::Error> {
+    println!("Extracting current colours from: {}", config_file_path.display());
+    let current_colours = extract_current_colours(config_file_path)?;
+
+    println!("\n--- Current Kitty Colours ---");
+    for &key in COLOUR_KEYS.iter() {
+        if let Some(colour_hex) = current_colours.get(key) {
+            println!("{}: #{}", key, colour_hex);
+        } else {
+            println!("{}: (Not found in config, defaulting to #000000)", key);
+        }
+    }
+    println!("-----------------------------");
+
+    Ok(())
+}
+
+fn shuffle_current_colours(config_file_path: &PathBuf) -> Result<(), io::Error> {
+    println!("Shuffling current colours...");
+
+    let current_colours_map = extract_current_colours(config_file_path)?;
+
+    let mut hex_values: Vec<String> = current_colours_map.values().cloned().collect();
+
+    if hex_values.len() != COLOUR_KEYS.len() {
+        eprintln!("Warning: Found {} colour values, expected {}. Shuffle will operate on available values plus defaults for missing ones.", hex_values.len(), COLOUR_KEYS.len());
+    }
+
+    let mut rng = rand::rng();
+    hex_values.shuffle(&mut rng);
+
+    let mut shuffled_colours_map: HashMap<String, String> = HashMap::new();
+    for (i, &key) in COLOUR_KEYS.iter().enumerate() {
+        shuffled_colours_map.insert(key.to_string(), hex_values[i].clone());
+    }
+
+    update_kitty_config_with_colours(config_file_path, &shuffled_colours_map)?;
+
+    println!("\nKitty colours shuffled and updated in config file!");
+    println!("Please restart Kitty manually to see the changes, as live reload is not reliably supported by your Kitty version.");
+
+    Ok(())
+}
+
 
 fn main() -> Result<(), io::Error> {
     let args = Args::parse();
@@ -233,24 +291,37 @@ fn main() -> Result<(), io::Error> {
         }
     };
 
-    if args.random_colours {
-        if args.backup || args.load {
-            eprintln!("Error: Cannot use --random with --backup or --load.");
+    if args.random_colors {
+        if args.backup || args.load || args.colours || args.shuffle {
+            eprintln!("Error: Cannot use --random with --backup, --load, --colours, or --shuffle.");
             return Ok(());
         }
         apply_random_colours_to_kitty(&config_file_path)?;
     } else if args.backup {
-        if args.load {
-            eprintln!("Error: Cannot use --backup with --load.");
+        if args.load || args.colours || args.shuffle {
+            eprintln!("Error: Cannot use --backup with --load, or --colours.");
             return Ok(());
         }
         create_colours_backup(&config_file_path, args.name)?;
     } else if args.load {
+        if args.colours || args.shuffle {
+            eprintln!("Error: Cannot use --load with --colours, or --shuffle.");
+            return Ok(());
+        }
         load_colours_from_backup(&config_file_path, args.name)?;
-    } else {
+    } else if args.colours {
+        if args.shuffle {
+            eprintln!("Error: Cannot use --colours with --shuffle.");
+            return Ok(());
+        }
+        print_current_colours_to_terminal(&config_file_path)?;
+    } else if args.shuffle {
+        shuffle_current_colours(&config_file_path)?;
+    }
+    else {
         println!("No operation specified.");
-        println!("Use `rtc --random` to generate colours, `rtc --backup` to save, or `rtc --load` to restore.");
-        println!("Add `-n <name>` to `backup` or `load` for named operations.");
+        println!("Use `rtc -r` to generate colours, `rtc -b` to save, or `rtc -l` to load in, `rtc -c` to print current colours, or `rtc -s` to reorder current colours.");
+        println!("Add `-n <name>` to specify `backup` or `load` file name for these operations.");
     }
 
     Ok(())
