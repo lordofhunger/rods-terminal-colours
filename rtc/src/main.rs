@@ -1,6 +1,6 @@
 mod util;
 mod config;
-use config::{find_kitty_config_path};
+use config::find_kitty_config_path;
 mod colours;
 use colours::{
     create_colours_backup,
@@ -8,11 +8,9 @@ use colours::{
     print_current_colours_to_terminal,
     apply_random_colours_to_kitty,
     shuffle_current_colours,
-    parse_color_keys_input,};
+    parse_colour_keys_input,};
 use clap::Parser;
-use std::{
-    io,
-};
+use std::io;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -26,22 +24,22 @@ use std::{
 struct Args {
     /// Generate and apply a random Kitty colour scheme
     #[arg(short = 'r', long = "random", conflicts_with_all = &["backup", "load", "get_colours", "shuffle", "set_colour"])]
-    random_colors: bool,
+    random_colours: bool,
 
     /// Create a backup of your current Kitty colour configuration (only the 19 prominent colours)
-    #[arg(short = 'b', long = "backup", conflicts_with_all = &["random_colors", "load", "get_colours", "shuffle", "set_colour", "exception_keys", "force_keys"])]
+    #[arg(short = 'b', long = "backup", conflicts_with_all = &["random_colours", "load", "get_colours", "shuffle", "set_colour", "exception_keys", "force_keys"])]
     backup: bool,
 
     /// Load a saved Kitty colour configuration backup
-    #[arg(short = 'l', long = "load", conflicts_with_all = &["random_colors", "backup", "get_colours", "shuffle", "set_colour", "exception_keys", "force_keys"])]
+    #[arg(short = 'l', long = "load", conflicts_with_all = &["random_colours", "backup", "get_colours", "shuffle", "set_colour", "exception_keys", "force_keys"])]
     load: bool,
 
     /// Print the currently applied 19 prominent colours from Kitty's config
-    #[arg(short = 'g', long = "get-colours", conflicts_with_all = &["random_colors", "backup", "load", "shuffle", "set_colour", "exception_keys", "force_keys"])]
+    #[arg(short = 'g', long = "get-colours", conflicts_with_all = &["random_colours", "backup", "load", "shuffle", "set_colour", "exception_keys", "force_keys"])]
     get_colours: bool,
 
     /// Shuffle the currently applied 19 prominent colours in Kitty's config
-    #[arg(short = 's', long = "shuffle", conflicts_with_all = &["random_colors", "backup", "load", "get_colours", "set_colour"])]
+    #[arg(short = 's', long = "shuffle", conflicts_with_all = &["random_colours", "backup", "load", "get_colours", "set_colour"])]
     shuffle: bool,
 
     /// Specify a name for the backup or load operation (e.g., 'my_theme').
@@ -61,7 +59,7 @@ struct Args {
 
     /// Future feature: Set a specific colour key to a specific hex value.
     /// This argument will enable the set-colour mode.
-    #[arg(long = "set-colour", conflicts_with_all = &["random_colors", "backup", "load", "get_colours", "shuffle", "exception_keys", "force_keys"], requires = "set_colour_hex")]
+    #[arg(long = "set-colour", conflicts_with_all = &["random_colours", "backup", "load", "get_colours", "shuffle", "exception_keys", "force_keys"], requires = "set_colour_hex")]
     set_colour: bool,
 
     /// The hex colour value (e.g., #142569) to set when using --set-colour.
@@ -84,21 +82,20 @@ fn main() -> Result<(), io::Error> {
         }
     };
 
-    let has_exception_keys = args.exception_keys.is_some() && !parse_color_keys_input(&args.exception_keys).is_empty();
-    let has_force_keys = args.force_keys.is_some() && !parse_color_keys_input(&args.force_keys).is_empty();
+    let has_exception_keys = args.exception_keys.is_some() && !parse_colour_keys_input(&args.exception_keys).is_empty();
+    let has_force_keys = args.force_keys.is_some() && !parse_colour_keys_input(&args.force_keys).is_empty();
 
     if has_exception_keys && has_force_keys {
         eprintln!("Error: The --exception (-e) and --force (-f) flags cannot be used together. Please choose one.");
         return Ok(());
     }
 
-    if (has_exception_keys || has_force_keys) && !(args.random_colors || args.shuffle) {
+    if (has_exception_keys || has_force_keys) && !(args.random_colours || args.shuffle) {
         eprintln!("Error: The --exception (-e) or --force (-f) flags can only be used with --random (-r) or --shuffle (-s).");
         return Ok(());
     }
 
-
-    if args.random_colors {
+    if args.random_colours {
         apply_random_colours_to_kitty(&config_file_path, &args.exception_keys, &args.force_keys)?;
     } else if args.backup {
         create_colours_backup(&config_file_path, args.name)?;

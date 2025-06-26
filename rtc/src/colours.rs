@@ -1,33 +1,34 @@
 use std::{collections::HashMap, fs, io, path::PathBuf};
 use crate::config::get_colours_backup_path;
-use crate::util::generate_random_colour_hex;
+use crate::util::{generate_random_colour_hex,
+                  hex_to_rgb, 
+                  inverted_hex_to_rgb,};
 use rand::seq::SliceRandom;
+use std::sync::LazyLock;
 
-lazy_static::lazy_static! {
-    pub static ref COLOUR_KEY_ALIASES: HashMap<&'static str, &'static str> = {
-        let mut m = HashMap::new();
-        m.insert("fg", "foreground");
-        m.insert("bg", "background");
-        m.insert("cs", "cursor");
-        m.insert("c0", "color0");
-        m.insert("c1", "color1");
-        m.insert("c2", "color2");
-        m.insert("c3", "color3");
-        m.insert("c4", "color4");
-        m.insert("c5", "color5");
-        m.insert("c6", "color6");
-        m.insert("c7", "color7");
-        m.insert("c8", "color8");
-        m.insert("c9", "color9");
-        m.insert("c10", "color10");
-        m.insert("c11", "color11");
-        m.insert("c12", "color12");
-        m.insert("c13", "color13");
-        m.insert("c14", "color14");
-        m.insert("c15", "color15");
-        m
-    };
-}
+pub static COLOUR_KEY_ALIASES: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
+    let mut m = HashMap::new();
+    m.insert("fg", "foreground");
+    m.insert("bg", "background");
+    m.insert("cs", "cursor");
+    m.insert("c0", "color0");
+    m.insert("c1", "color1");
+    m.insert("c2", "color2");
+    m.insert("c3", "color3");
+    m.insert("c4", "color4");
+    m.insert("c5", "color5");
+    m.insert("c6", "color6");
+    m.insert("c7", "color7");
+    m.insert("c8", "color8");
+    m.insert("c9", "color9");
+    m.insert("c10", "color10");
+    m.insert("c11", "color11");
+    m.insert("c12", "color12");
+    m.insert("c13", "color13");
+    m.insert("c14", "color14");
+    m.insert("c15", "color15");
+    m
+});
 
 pub const COLOUR_KEYS: [&str; 19] = [
     "foreground", "background", "cursor",
@@ -160,7 +161,7 @@ pub fn load_colours_from_backup(config_file_path: &PathBuf, backup_name: Option<
     Ok(())
 }
 
-pub fn parse_color_keys_input(input: &Option<String>) -> Vec<String> {
+pub fn parse_colour_keys_input(input: &Option<String>) -> Vec<String> {
     let mut result_keys = Vec::new();
     if let Some(s) = input {
         let cleaned = s.trim_start_matches('(').trim_end_matches(')').to_string();
@@ -190,8 +191,8 @@ pub fn apply_random_colours_to_kitty(
     let current_colours = extract_current_colours(config_file_path)?;
     let mut generated_colours_map: HashMap<String, String> = HashMap::new();
 
-    let forced_keys = parse_color_keys_input(force_keys_input);
-    let excluded_keys = parse_color_keys_input(exception_keys_input);
+    let forced_keys = parse_colour_keys_input(force_keys_input);
+    let excluded_keys = parse_colour_keys_input(exception_keys_input);
 
     for &key in COLOUR_KEYS.iter() {
         let key_string = key.to_string();
@@ -228,8 +229,21 @@ pub fn print_current_colours_to_terminal(config_file_path: &PathBuf) -> Result<(
 
     println!("\n--- Current Kitty Colours ---");
     for &key in COLOUR_KEYS.iter() {
+
         if let Some(colour_hex) = current_colours.get(key) {
-            println!("{}: #{}", key, colour_hex);
+            match inverted_hex_to_rgb(colour_hex) {
+                Ok((r, g, b)) => {
+                    let (inv_r, inv_g, inv_b) = hex_to_rgb(colour_hex).unwrap_or((0, 0, 0));
+                    println!(
+                        "{}: \x1b[38;2;{};{};{}m\x1b[48;2;{};{};{}m#{}\x1b[0m",
+                        key, r, g, b, inv_r, inv_g, inv_b, colour_hex
+                    );
+                }
+                Err(e) => {
+                    eprintln!("Failed to parse colour hex {}: {}", colour_hex, e);
+                    println!("{}: #{}", key, colour_hex);
+                }
+            }
         } else {
             println!("{}: (Not found in config, defaulting to #000000)", key);
         }
@@ -248,8 +262,8 @@ pub fn shuffle_current_colours(
 
     let current_colours_map = extract_current_colours(config_file_path)?;
 
-    let forced_keys = parse_color_keys_input(force_keys_input);
-    let excluded_keys = parse_color_keys_input(exception_keys_input);
+    let forced_keys = parse_colour_keys_input(force_keys_input);
+    let excluded_keys = parse_colour_keys_input(exception_keys_input);
 
     let mut shufflable_keys_full_names: Vec<String> = Vec::new();
     let mut fixed_colours_map: HashMap<String, String> = HashMap::new();
@@ -321,3 +335,4 @@ pub fn shuffle_current_colours(
 
     Ok(())
 }
+
