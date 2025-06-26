@@ -1,0 +1,1 @@
+/home/rob/Projects/rods-terminal-colours/rtc/target/release/rtc: /home/rob/Projects/rods-terminal-colours/rtc/src/colours.rs /home/rob/Projects/rods-terminal-colours/rtc/src/config.rs /home/rob/Projects/rods-terminal-colours/rtc/src/main.rs /home/rob/Projects/rods-terminal-colours/rtc/src/util.rs
