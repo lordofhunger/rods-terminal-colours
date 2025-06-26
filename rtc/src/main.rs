@@ -73,13 +73,6 @@ struct Args {
     set_colour_name: Option<String>,
 }
 
-
-
-
-
-
-
-
 fn main() -> Result<(), io::Error> {
     let args = Args::parse();
 
