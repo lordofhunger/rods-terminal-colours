@@ -78,23 +78,27 @@ pub fn update_kitty_config_with_colours(config_file_path: &PathBuf, colours_to_a
     let mut new_content_lines = Vec::new();
 
     for line in original_content.lines() {
-        let mut line_modified = false;
-        for &key in COLOUR_KEYS.iter() {
+        let mut modified_line_content: Option<String> = None;
+
+        for (key_to_change, new_hex_value) in colours_to_apply.iter() {
             let trimmed_line_start = line.trim_start();
-            if trimmed_line_start.starts_with(key) {
-                let remaining_after_key = &trimmed_line_start[key.len()..];
+
+            if trimmed_line_start.starts_with(key_to_change) {
+                let remaining_after_key = &trimmed_line_start[key_to_change.len()..];
                 if let Some(hash_pos_in_remaining) = remaining_after_key.find('#') {
                     let chars_between = &remaining_after_key[..hash_pos_in_remaining];
                     if chars_between.trim().is_empty() {
                         let prefix = &line[..line.len() - remaining_after_key.len()];
-                        new_content_lines.push(format!("{} #{}\n", prefix.trim_end(), colours_to_apply[key]));
-                        line_modified = true;
+                        modified_line_content = Some(format!("{} #{}\n", prefix.trim_end(), new_hex_value));
                         break;
                     }
                 }
             }
         }
-        if !line_modified {
+
+        if let Some(modified) = modified_line_content {
+            new_content_lines.push(modified);
+        } else {
             new_content_lines.push(format!("{}\n", line));
         }
     }
@@ -108,15 +112,21 @@ pub fn update_kitty_config_with_colours(config_file_path: &PathBuf, colours_to_a
     Ok(())
 }
 
-pub fn create_backup_from_given_colours(colours: &ColourMap, backup_name: Option<String>) -> Result<(), io::Error> {
+pub fn create_colours_backup(config_file_path: &PathBuf, backup_name: Option<String>) -> Result<(), io::Error> {
+    if !config_file_path.exists() {
+        eprintln!("Error: kitty.conf not found at {}. Cannot create colour backup.", config_file_path.display());
+        return Err(io::Error::new(io::ErrorKind::NotFound, "kitty.conf not found"));
+    }
+
+    let current_colours = extract_current_colours(config_file_path)?;
     let backup_file_path = get_colours_backup_path(&backup_name)?;
 
     let mut backup_content = String::new();
     for &key in COLOUR_KEYS.iter() {
-        if let Some(colour_hex) = colours.get(key) {
+        if let Some(colour_hex) = current_colours.get(key) {
             backup_content.push_str(&format!("{}#{}\n", key, colour_hex));
         } else {
-            eprintln!("Warning: Colour key '{}' not found in provided colours for backup. Backing up with default/missing value.", key);
+            eprintln!("Warning: Colour key '{}' not found in current kitty.conf for backup. Backing up with default/missing value.", key);
             backup_content.push_str(&format!("{}#000000\n", key));
         }
     }
@@ -129,16 +139,6 @@ pub fn create_backup_from_given_colours(colours: &ColourMap, backup_name: Option
     Ok(())
 }
 
-pub fn create_colours_backup(config_file_path: &PathBuf, backup_name: Option<String>) -> Result<(), io::Error> {
-    if !config_file_path.exists() {
-        eprintln!("Error: kitty.conf not found at {}. Cannot create colour backup.", config_file_path.display());
-        return Err(io::Error::new(io::ErrorKind::NotFound, "kitty.conf not found"));
-    }
-    let current_colours = extract_current_colours(config_file_path)?;
-    create_backup_from_given_colours(&current_colours, backup_name)
-}
-
-
 pub fn load_colours_from_backup(config_file_path: &PathBuf, backup_name: Option<String>) -> Result<(), io::Error> {
     let backup_file_path = get_colours_backup_path(&backup_name)?;
 
@@ -149,7 +149,7 @@ pub fn load_colours_from_backup(config_file_path: &PathBuf, backup_name: Option<
 
     let backup_content = fs::read_to_string(&backup_file_path)
         .map_err(|e| io::Error::new(e.kind(), format!("Failed to read colour backup: {}", e)))?;
-    let mut colours_to_apply: ColourMap = HashMap::new();
+    let mut colours_to_apply = HashMap::new();
 
     for line in backup_content.lines() {
         if let Some(hash_pos) = line.find('#') {
