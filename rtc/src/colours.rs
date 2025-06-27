@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs, io, path::PathBuf};
 use crate::config::get_colours_backup_path;
 use crate::util::{generate_random_colour_hex,
-                  hex_to_rgb, 
+                  hex_to_rgb,
                   inverted_hex_to_rgb,};
 use rand::seq::SliceRandom;
 use std::sync::LazyLock;
@@ -36,10 +36,12 @@ pub const COLOUR_KEYS: [&str; 19] = [
     "color8", "color9", "color10", "color11", "color12", "color13", "color14", "color15",
 ];
 
-pub fn extract_current_colours(config_file_path: &PathBuf) -> Result<HashMap<String, String>, io::Error> {
+pub type ColourMap = HashMap<String, String>;
+
+pub fn extract_current_colours(config_file_path: &PathBuf) -> Result<ColourMap, io::Error> {
     let original_content = fs::read_to_string(config_file_path)
         .map_err(|e| io::Error::new(e.kind(), format!("Failed to read kitty.conf for colour extraction: {}", e)))?;
-    let mut current_colours: HashMap<String, String> = HashMap::new();
+    let mut current_colours: ColourMap = HashMap::new();
 
     for line in original_content.lines() {
         let trimmed_line = line.trim();
@@ -70,7 +72,7 @@ pub fn extract_current_colours(config_file_path: &PathBuf) -> Result<HashMap<Str
     Ok(current_colours)
 }
 
-pub fn update_kitty_config_with_colours(config_file_path: &PathBuf, colours_to_apply: &HashMap<String, String>) -> Result<(), io::Error> {
+pub fn update_kitty_config_with_colours(config_file_path: &PathBuf, colours_to_apply: &ColourMap) -> Result<(), io::Error> {
     let original_content = fs::read_to_string(config_file_path)
         .map_err(|e| io::Error::new(e.kind(), format!("Failed to read kitty.conf for update: {}", e)))?;
     let mut new_content_lines = Vec::new();
@@ -106,21 +108,15 @@ pub fn update_kitty_config_with_colours(config_file_path: &PathBuf, colours_to_a
     Ok(())
 }
 
-pub fn create_colours_backup(config_file_path: &PathBuf, backup_name: Option<String>) -> Result<(), io::Error> {
-    if !config_file_path.exists() {
-        eprintln!("Error: kitty.conf not found at {}. Cannot create colour backup.", config_file_path.display());
-        return Err(io::Error::new(io::ErrorKind::NotFound, "kitty.conf not found"));
-    }
-
-    let current_colours = extract_current_colours(config_file_path)?;
+pub fn create_backup_from_given_colours(colours: &ColourMap, backup_name: Option<String>) -> Result<(), io::Error> {
     let backup_file_path = get_colours_backup_path(&backup_name)?;
 
     let mut backup_content = String::new();
     for &key in COLOUR_KEYS.iter() {
-        if let Some(colour_hex) = current_colours.get(key) {
+        if let Some(colour_hex) = colours.get(key) {
             backup_content.push_str(&format!("{}#{}\n", key, colour_hex));
         } else {
-            eprintln!("Warning: Colour key '{}' not found in current kitty.conf for backup. Backing up with default/missing value.", key);
+            eprintln!("Warning: Colour key '{}' not found in provided colours for backup. Backing up with default/missing value.", key);
             backup_content.push_str(&format!("{}#000000\n", key));
         }
     }
@@ -133,6 +129,16 @@ pub fn create_colours_backup(config_file_path: &PathBuf, backup_name: Option<Str
     Ok(())
 }
 
+pub fn create_colours_backup(config_file_path: &PathBuf, backup_name: Option<String>) -> Result<(), io::Error> {
+    if !config_file_path.exists() {
+        eprintln!("Error: kitty.conf not found at {}. Cannot create colour backup.", config_file_path.display());
+        return Err(io::Error::new(io::ErrorKind::NotFound, "kitty.conf not found"));
+    }
+    let current_colours = extract_current_colours(config_file_path)?;
+    create_backup_from_given_colours(&current_colours, backup_name)
+}
+
+
 pub fn load_colours_from_backup(config_file_path: &PathBuf, backup_name: Option<String>) -> Result<(), io::Error> {
     let backup_file_path = get_colours_backup_path(&backup_name)?;
 
@@ -143,7 +149,7 @@ pub fn load_colours_from_backup(config_file_path: &PathBuf, backup_name: Option<
 
     let backup_content = fs::read_to_string(&backup_file_path)
         .map_err(|e| io::Error::new(e.kind(), format!("Failed to read colour backup: {}", e)))?;
-    let mut colours_to_apply = HashMap::new();
+    let mut colours_to_apply: ColourMap = HashMap::new();
 
     for line in backup_content.lines() {
         if let Some(hash_pos) = line.find('#') {
@@ -189,7 +195,7 @@ pub fn apply_random_colours_to_kitty(
     force_keys_input: &Option<String>,
 ) -> Result<(), io::Error> {
     let current_colours = extract_current_colours(config_file_path)?;
-    let mut generated_colours_map: HashMap<String, String> = HashMap::new();
+    let mut generated_colours_map: ColourMap = HashMap::new();
 
     let forced_keys = parse_colour_keys_input(force_keys_input);
     let excluded_keys = parse_colour_keys_input(exception_keys_input);
@@ -224,32 +230,39 @@ pub fn apply_random_colours_to_kitty(
 }
 
 pub fn print_current_colours_to_terminal(config_file_path: &PathBuf) -> Result<(), io::Error> {
-    println!("Extracting current colours from: {}", config_file_path.display());
     let current_colours = extract_current_colours(config_file_path)?;
 
-    println!("\n--- Current Kitty Colours ---");
+    println!(" ┏━━━━━━━━━━━━━━━━━━━━━━┓ ");
     for &key in COLOUR_KEYS.iter() {
+        let num_spaces = match key {
+            "foreground" | "background" => 2,
+            "cursor" | "color0" | "color1" | "color2" | "color3" | "color4" |
+            "color5" | "color6" | "color7" | "color8" | "color9" => 6,
+            "color10" | "color11" | "color12" | "color13" | "color14" | "color15" => 5,
+            _ => 0,
+        };
+        let spacing = " ".repeat(num_spaces);
 
         if let Some(colour_hex) = current_colours.get(key) {
             match inverted_hex_to_rgb(colour_hex) {
                 Ok((r, g, b)) => {
                     let (inv_r, inv_g, inv_b) = hex_to_rgb(colour_hex).unwrap_or((0, 0, 0));
                     println!(
-                        "{}: \x1b[38;2;{};{};{}m\x1b[48;2;{};{};{}m#{}\x1b[0m",
-                        key, r, g, b, inv_r, inv_g, inv_b, colour_hex
+                        " ┃ {}:{}\x1b[38;2;{};{};{}m\x1b[48;2;{};{};{}m#{}\x1b[0m ┃ ",
+                        key, spacing, r, g, b, inv_r, inv_g, inv_b, colour_hex
                     );
                 }
                 Err(e) => {
                     eprintln!("Failed to parse colour hex {}: {}", colour_hex, e);
-                    println!("{}: #{}", key, colour_hex);
+                    println!("    {}:{}#{}", key, spacing, colour_hex);
                 }
             }
         } else {
-            println!("{}: (Not found in config, defaulting to #000000)", key);
+            println!("    {}:{} (Not found in config, defaulting to #000000)", key, spacing);
         }
     }
-    println!("-----------------------------");
-
+    println!(" ┗━━━━━━━━━━━━━━━━━━━━━━┛ ");
+    println!("> {}", config_file_path.display());
     Ok(())
 }
 
@@ -266,7 +279,7 @@ pub fn shuffle_current_colours(
     let excluded_keys = parse_colour_keys_input(exception_keys_input);
 
     let mut shufflable_keys_full_names: Vec<String> = Vec::new();
-    let mut fixed_colours_map: HashMap<String, String> = HashMap::new();
+    let mut fixed_colours_map: ColourMap = HashMap::new();
 
     for &key in COLOUR_KEYS.iter() {
         let key_string = key.to_string();
@@ -309,7 +322,7 @@ pub fn shuffle_current_colours(
     let mut rng = rand::rng();
     shufflable_hex_values.shuffle(&mut rng);
 
-    let mut shuffled_colours_map: HashMap<String, String> = HashMap::new();
+    let mut shuffled_colours_map: ColourMap = HashMap::new();
     let mut shufflable_idx = 0;
 
     for &key in COLOUR_KEYS.iter() {
@@ -335,4 +348,3 @@ pub fn shuffle_current_colours(
 
     Ok(())
 }
-

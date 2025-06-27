@@ -8,68 +8,14 @@ use colours::{
     print_current_colours_to_terminal,
     apply_random_colours_to_kitty,
     shuffle_current_colours,
-    parse_colour_keys_input,};
+    parse_colour_keys_input,
+};
+mod cli;
+use cli::Args;
 use clap::Parser;
 use std::io;
 
-#[derive(Parser, Debug)]
-#[command(
-    name = "rtc",
-    author = "Rod",
-    version,
-    about = "Rod's Terminal Colours for Kitty",
-    long_about = "Rod's Terminal Colours (rtc) is a CLI tool to manage different colour functionalities. It allows you to generate random colour schemes, create backups of your current one, load previously saved ones, print current colours, and shuffle existing colours. Colours are applied to ~/.config/kitty/kitty.kitty.conf or ~/.kitty.kitty.conf.",
-)]
 
-struct Args {
-    /// Generate and apply a random Kitty colour scheme
-    #[arg(short = 'r', long = "random", conflicts_with_all = &["backup", "load", "get_colours", "shuffle", "set_colour"])]
-    random_colours: bool,
-
-    /// Create a backup of your current Kitty colour configuration (only the 19 prominent colours)
-    #[arg(short = 'b', long = "backup", conflicts_with_all = &["random_colours", "load", "get_colours", "shuffle", "set_colour", "exception_keys", "force_keys"])]
-    backup: bool,
-
-    /// Load a saved Kitty colour configuration backup
-    #[arg(short = 'l', long = "load", conflicts_with_all = &["random_colours", "backup", "get_colours", "shuffle", "set_colour", "exception_keys", "force_keys"])]
-    load: bool,
-
-    /// Print the currently applied 19 prominent colours from Kitty's config
-    #[arg(short = 'g', long = "get-colours", conflicts_with_all = &["random_colours", "backup", "load", "shuffle", "set_colour", "exception_keys", "force_keys"])]
-    get_colours: bool,
-
-    /// Shuffle the currently applied 19 prominent colours in Kitty's config
-    #[arg(short = 's', long = "shuffle", conflicts_with_all = &["random_colours", "backup", "load", "get_colours", "set_colour"])]
-    shuffle: bool,
-
-    /// Specify a name for the backup or load operation (e.g., 'my_theme').
-    /// If not provided, a default backup/load will be used.
-    #[arg(short = 'n', long = "name", value_name = "NAME")]
-    name: Option<String>,
-
-    /// Specify colour keys to exclude from randomization/shuffling (e.g., 'bg' or '(fg, c0, c7)').
-    /// Use with -r or -s. Conflicts with --force.
-    #[arg(short = 'e', long = "exception", value_name = "KEYS", conflicts_with = "force_keys")]
-    exception_keys: Option<String>,
-
-    /// Specify colour keys to ONLY apply randomization/shuffling to (e.g., 'bg' or '(fg, c0, c7)').
-    /// Use with -r or -s. Conflicts with --exception.
-    #[arg(short = 'f', long = "force", value_name = "KEYS")]
-    force_keys: Option<String>,
-
-    /// Future feature: Set a specific colour key to a specific hex value.
-    /// This argument will enable the set-colour mode.
-    #[arg(long = "set-colour", conflicts_with_all = &["random_colours", "backup", "load", "get_colours", "shuffle", "exception_keys", "force_keys"], requires = "set_colour_hex")]
-    set_colour: bool,
-
-    /// The hex colour value (e.g., #142569) to set when using --set-colour.
-    #[arg(long = "hex", value_name = "HEX_CODE")]
-    set_colour_hex: Option<String>,
-
-    /// The name of the colour key (e.g., 'foreground' or 'fg') to set when using --set-colour.
-    #[arg(long = "colour-name", value_name = "KEY")]
-    set_colour_name: Option<String>,
-}
 
 fn main() -> Result<(), io::Error> {
     let args = Args::parse();
@@ -81,6 +27,19 @@ fn main() -> Result<(), io::Error> {
             return Err(io::Error::new(io::ErrorKind::NotFound, "kitty.conf not found"));
         }
     };
+
+    let active_modes = [
+        args.random_colours,
+        args.backup,
+        args.load,
+        args.get_colours,
+        args.shuffle,
+    ].iter().filter(|&&x| x).count();
+
+    if active_modes > 1 {
+        eprintln!("Error: Only one main operation (--random, --backup, --load, --get-colours, --shuffle) can be specified at a time.");
+        return Ok(());
+    }
 
     let has_exception_keys = args.exception_keys.is_some() && !parse_colour_keys_input(&args.exception_keys).is_empty();
     let has_force_keys = args.force_keys.is_some() && !parse_colour_keys_input(&args.force_keys).is_empty();
@@ -105,21 +64,12 @@ fn main() -> Result<(), io::Error> {
         print_current_colours_to_terminal(&config_file_path)?;
     } else if args.shuffle {
         shuffle_current_colours(&config_file_path, &args.exception_keys, &args.force_keys)?;
-    } else if args.set_colour {
-        if let (Some(hex_code), Some(colour_name)) = (&args.set_colour_hex, &args.set_colour_name) {
-            println!("Future Feature: Setting colour '{}' to '{}'.", colour_name, hex_code);
-            println!("This feature is not yet implemented.");
-        } else {
-            eprintln!("Error: --set-colour requires --hex and --colour-name.");
-        }
-    }
-    else {
+    } else {
         println!("No operation specified.");
-        println!("Use `rtc -r` to generate colours, `rtc -b` to save, or `rtc -l` to load in, `rtc -g` to print current colours, or `rtc -s` to reorder current colours.");
+        println!("Use `rtc -r` to generate random colours, `rtc -b` to save, or `rtc -l` to load in, `rtc -g` to print current colours, or `rtc -s` to reorder current colours.");
         println!("Add `-n <name>` to specify `backup` or `load` file name for these operations.");
         println!("Use `-e <keys>` with `-r` or `-s` to specify colours to exclude (e.g., `-e bg` or `-e fg,c0`).");
         println!("Use `-f <keys>` with `-r` or `-s` to specify colours to *only* affect (e.g., `-f fg` or `-f bg,c7`). Conflicts with `-e`.");
-        println!("Future: Use `--set-colour --hex #RRGGBB --colour-name <key>` to set a specific colour.");
     }
 
     Ok(())
